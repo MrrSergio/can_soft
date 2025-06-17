@@ -2,28 +2,39 @@
 #include <stdio.h>
 
 typedef struct {
-    /* hardware specific context placeholder */
     int dummy;
 } MCP2515_Context;
+
+static CAN_Message_t echo_msg;
+static int echo_pending = 0;
 
 static CAN_Result_t mcp_init(ICANDriver *drv, const CAN_Config_t *cfg)
 {
     (void)cfg;
     drv->ctx = NULL;
+    echo_pending = 0;
     return CAN_OK;
 }
 
 static CAN_Result_t mcp_send(ICANDriver *drv, const CAN_Message_t *msg, uint32_t timeout)
 {
     (void)drv; (void)timeout;
-    if (msg)
+    if (msg) {
         printf("MCP2515 send id: 0x%lx\n", (unsigned long)msg->id);
+        echo_msg = *msg;
+        echo_pending = 1;
+    }
     return CAN_OK;
 }
 
 static CAN_Result_t mcp_receive(ICANDriver *drv, CAN_Message_t *msg)
 {
-    (void)drv; (void)msg;
+    (void)drv;
+    if (echo_pending && msg) {
+        *msg = echo_msg;
+        echo_pending = 0;
+        return CAN_OK;
+    }
     return CAN_ERROR;
 }
 

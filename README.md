@@ -19,10 +19,13 @@ can/
 
 - Multiple CAN interfaces selectable at runtime
 - Built-in transmit and receive queues with event callbacks
+- Automatic bitrate detection helper
+- Simple API for sending messages and polling receive buffers
+- Direct access to driver functions for filters, modes and error queries
 
 ## Building example
 
-A very small `can_test.c` demonstrates adding two interfaces, queuing a message, processing the manager and triggering autobaud.
+`can_test.c` demonstrates adding two interfaces, enabling autobaud, configuring filters and loopback mode, sending messages and polling for reception.
 
 ```
 cc can/*.c -o can_test
