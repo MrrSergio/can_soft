@@ -66,8 +66,31 @@ static uint32_t mcp_get_error(ICANDriver *drv)
 
 static CAN_Result_t mcp_autobaud(ICANDriver *drv, const uint32_t *rates, uint8_t num)
 {
-    (void)drv; (void)rates; (void)num;
-    return CAN_OK;
+    if (!drv || !rates || num == 0)
+        return CAN_ERROR;
+
+    MCP2515_Context *ctx = (MCP2515_Context *)drv->ctx;
+    CAN_Message_t msg;
+
+    for (uint8_t i = 0; i < num; ++i) {
+        uint32_t br = rates[i];
+        if (br == 0)
+            break;
+
+        /* Simulate writing bitrate to MCP2515 CNF registers */
+        ctx->dummy = (int)br;
+        printf("MCP2515 autobaud try %lu\n", (unsigned long)br);
+
+        /* Poll for a received frame at this rate */
+        for (int attempt = 0; attempt < 10; ++attempt) {
+            if (mcp_receive(drv, &msg) == CAN_OK) {
+                printf("MCP2515 autobaud detected %lu\n", (unsigned long)br);
+                return CAN_OK;
+            }
+        }
+    }
+
+    return CAN_ERROR;
 }
 
 ICANDriver mcp2515_driver = {
