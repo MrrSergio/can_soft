@@ -16,6 +16,8 @@ typedef struct {
     void *driver_ctx;
     CAN_Callback_t callbacks[3];
     CAN_Buffer_t buffers;
+    uint32_t filter_id;
+    uint32_t filter_mask;
 } CAN_Instance_t;
 
 static CAN_Instance_t can_instances[MAX_CAN_INTERFACES];
@@ -40,6 +42,13 @@ int CAN_Manager_AddInterface(ICANDriver *driver, const CAN_Config_t *config)
     }
     can_instances[can_instances_count].driver = driver;
     can_instances[can_instances_count].driver_ctx = driver->ctx;
+    if (config) {
+        can_instances[can_instances_count].filter_id = config->filter_id;
+        can_instances[can_instances_count].filter_mask = config->filter_mask;
+    } else {
+        can_instances[can_instances_count].filter_id = 0;
+        can_instances[can_instances_count].filter_mask = 0;
+    }
     memset(can_instances[can_instances_count].callbacks, 0, sizeof(CAN_Callback_t) * 3);
     CAN_Buffer_t *buf = &can_instances[can_instances_count].buffers;
     buf->tx_head = buf->tx_tail = 0;
@@ -71,6 +80,18 @@ void CAN_RegisterCallback(uint8_t inst_id, CAN_Event_t event, CAN_Callback_t cb)
     if (inst_id >= can_instances_count || event > CAN_EVENT_ERROR)
         return;
     can_instances[inst_id].callbacks[event] = cb;
+}
+
+CAN_Result_t CAN_SetFilter(uint8_t inst_id, uint32_t id, uint32_t mask)
+{
+    if (inst_id >= can_instances_count)
+        return CAN_ERROR;
+    ICANDriver *drv = can_instances[inst_id].driver;
+    if (!drv || !drv->set_filter)
+        return CAN_ERROR;
+    can_instances[inst_id].filter_id = id;
+    can_instances[inst_id].filter_mask = mask;
+    return drv->set_filter(drv, id, mask);
 }
 
 int CAN_GetMessage(uint8_t inst_id, CAN_Message_t *msg)
