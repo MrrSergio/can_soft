@@ -35,7 +35,11 @@ typedef struct {
 
 typedef struct {
     struct {
+        uint32_t Prescaler;
         uint32_t Mode;
+        uint32_t SJW;
+        uint32_t BS1;
+        uint32_t BS2;
     } Init;
 } CAN_HandleTypeDef;
 
@@ -43,6 +47,7 @@ typedef enum { HAL_OK = 0, HAL_ERROR } HAL_StatusTypeDef;
 
 static HAL_StatusTypeDef HAL_CAN_Init(CAN_HandleTypeDef *h) { (void)h; return HAL_OK; }
 static HAL_StatusTypeDef HAL_CAN_Start(CAN_HandleTypeDef *h) { (void)h; return HAL_OK; }
+static HAL_StatusTypeDef HAL_CAN_Stop(CAN_HandleTypeDef *h) { (void)h; return HAL_OK; }
 static HAL_StatusTypeDef HAL_CAN_ConfigFilter(CAN_HandleTypeDef *h, const CAN_FilterTypeDef *f)
 { (void)h; (void)f; return HAL_OK; }
 static HAL_StatusTypeDef HAL_CAN_AddTxMessage(CAN_HandleTypeDef *h, const CAN_TxHeaderTypeDef *hdr,
@@ -58,17 +63,19 @@ static uint32_t HAL_CAN_GetError(CAN_HandleTypeDef *h) { (void)h; return 0; }
 typedef struct {
     CAN_DriverContext_t base;
     CAN_HandleTypeDef hcan;
+    int dummy; /* used to simulate bitrate register for autobaud */
 } BxCAN_Context;
 
 static BxCAN_Context bx_ctx;
 /* Forward declarations for helpers used in init */
 static CAN_Result_t bx_set_filter(ICANDriver *drv, uint32_t id, uint32_t mask);
 static CAN_Result_t bx_set_mode(ICANDriver *drv, CAN_Mode_t mode);
+static void         bx_config_bitrate(BxCAN_Context *ctx, uint32_t bitrate);
 
 static CAN_Result_t bx_init(ICANDriver *drv, const CAN_Config_t *cfg)
 {
     BxCAN_Context *ctx = &bx_ctx;
-    (void)HAL_CAN_Init(&ctx->hcan);
+    bx_config_bitrate(ctx, cfg ? cfg->bitrate : 500000);
     (void)HAL_CAN_Start(&ctx->hcan);
     drv->ctx = ctx;
     if (cfg) {
@@ -129,6 +136,19 @@ static CAN_Result_t bx_set_mode(ICANDriver *drv, CAN_Mode_t mode)
     return HAL_CAN_Start(&ctx->hcan) == HAL_OK ? CAN_OK : CAN_ERROR;
 }
 
+static void bx_config_bitrate(BxCAN_Context *ctx, uint32_t bitrate)
+{
+    const uint32_t pclk = 36000000U; /* simulated peripheral clock */
+    const uint32_t tq   = 16U;       /* number of time quanta */
+
+    ctx->hcan.Init.Prescaler = pclk / (bitrate * tq);
+    ctx->hcan.Init.SJW       = 1;
+    ctx->hcan.Init.BS1       = 13;
+    ctx->hcan.Init.BS2       = 2;
+    ctx->dummy               = (int)bitrate;
+    HAL_CAN_Init(&ctx->hcan);
+}
+
 static uint32_t bx_get_error(ICANDriver *drv)
 {
     BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
@@ -137,8 +157,35 @@ static uint32_t bx_get_error(ICANDriver *drv)
 
 static CAN_Result_t bx_autobaud(ICANDriver *drv, const uint32_t *rates, uint8_t num)
 {
-    (void)drv; (void)rates; (void)num;
-    /* Autobaud not implemented for bxCAN */
+    if (!drv || !rates || num == 0)
+        return CAN_ERROR;
+
+    BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
+    CAN_Message_t msg;
+
+    for (uint8_t i = 0; i < num; ++i) {
+        uint32_t br = rates[i];
+        if (br == 0)
+            continue;
+
+        HAL_CAN_Stop(&ctx->hcan);
+        ctx->hcan.Init.Mode = CAN_MODE_SILENT;
+        bx_config_bitrate(ctx, br);
+        HAL_CAN_Start(&ctx->hcan);
+        printf("bxCAN autobaud try %lu\n", (unsigned long)br);
+
+        for (int attempt = 0; attempt < 100; ++attempt) {
+            if (bx_receive(drv, &msg) == CAN_OK) {
+                printf("bxCAN autobaud detected %lu\n", (unsigned long)br);
+                HAL_CAN_Stop(&ctx->hcan);
+                ctx->hcan.Init.Mode = CAN_MODE_NORMAL;
+                bx_config_bitrate(ctx, br);
+                HAL_CAN_Start(&ctx->hcan);
+                return CAN_OK;
+            }
+        }
+    }
+
     return CAN_ERROR;
 }
 
