@@ -3,28 +3,31 @@
 #include <stdio.h>
 
 typedef struct {
+    CAN_DriverContext_t base;
     int dummy;
+    CAN_Message_t echo_msg;
+    int echo_pending;
 } MCP2515_Context;
 
-static CAN_Message_t echo_msg;
-static int echo_pending = 0;
+static MCP2515_Context mcp_ctx;
 
 static CAN_Result_t mcp_init(ICANDriver *drv, const CAN_Config_t *cfg)
 {
     (void)cfg;
-    drv->ctx = NULL;
-    echo_pending = 0;
+    drv->ctx = &mcp_ctx;
+    mcp_ctx.echo_pending = 0;
     return CAN_OK;
 }
 
 static CAN_Result_t mcp_send(ICANDriver *drv, const CAN_Message_t *msg, uint32_t timeout)
 {
     (void)timeout;
-    if (msg) {
+    MCP2515_Context *ctx = (MCP2515_Context *)drv->ctx;
+    if (msg && ctx) {
         printf("MCP2515 send id: 0x%lx\n", (unsigned long)msg->id);
-        echo_msg = *msg;
-        echo_pending = 1;
-        CAN_Manager_TriggerEvent((uint8_t)(uintptr_t)drv->ctx,
+        ctx->echo_msg = *msg;
+        ctx->echo_pending = 1;
+        CAN_Manager_TriggerEvent(ctx->base.inst_id,
                                  CAN_EVENT_TX_COMPLETE, (void *)msg);
     }
     return CAN_OK;
@@ -32,10 +35,11 @@ static CAN_Result_t mcp_send(ICANDriver *drv, const CAN_Message_t *msg, uint32_t
 
 static CAN_Result_t mcp_receive(ICANDriver *drv, CAN_Message_t *msg)
 {
-    if (echo_pending && msg) {
-        *msg = echo_msg;
-        echo_pending = 0;
-        CAN_Manager_TriggerEvent((uint8_t)(uintptr_t)drv->ctx,
+    MCP2515_Context *ctx = (MCP2515_Context *)drv->ctx;
+    if (ctx && ctx->echo_pending && msg) {
+        *msg = ctx->echo_msg;
+        ctx->echo_pending = 0;
+        CAN_Manager_TriggerEvent(ctx->base.inst_id,
                                  CAN_EVENT_RX, msg);
         return CAN_OK;
     }

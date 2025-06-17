@@ -13,6 +13,7 @@ typedef struct {
 
 typedef struct {
     ICANDriver *driver;
+    void *driver_ctx;
     CAN_Callback_t callbacks[3];
     CAN_Buffer_t buffers;
 } CAN_Instance_t;
@@ -38,12 +39,16 @@ int CAN_Manager_AddInterface(ICANDriver *driver, const CAN_Config_t *config)
         return -1;
     }
     can_instances[can_instances_count].driver = driver;
+    can_instances[can_instances_count].driver_ctx = driver->ctx;
     memset(can_instances[can_instances_count].callbacks, 0, sizeof(CAN_Callback_t) * 3);
     CAN_Buffer_t *buf = &can_instances[can_instances_count].buffers;
     buf->tx_head = buf->tx_tail = 0;
     buf->rx_head = buf->rx_tail = 0;
-    /* allow driver to know its instance id for external event reporting */
-    driver->ctx = (void*)(uintptr_t)can_instances_count;
+    /* store instance id in driver context if available */
+    if (driver->ctx) {
+        CAN_DriverContext_t *ctx = (CAN_DriverContext_t *)driver->ctx;
+        ctx->inst_id = can_instances_count;
+    }
     return can_instances_count++;
 }
 
