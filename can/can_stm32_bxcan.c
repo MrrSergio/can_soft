@@ -1,69 +1,22 @@
 #include "can_stm32_bxcan.h"
 #include "can_manager.h"
 #include <stdio.h>
+#include "stm32f1xx_hal.h"
+#include "stm32f1xx_hal_can.h"
 
 /*
- * This driver demonstrates how the portable CAN layer could be connected to
- * the STM32 HAL bxCAN API. The STM32 HAL is not available in this build
- * environment, therefore minimal stubs of the required types and functions are
- * provided so the code compiles and behaves in a predictable manner for the
- * example program.
+ * This driver demonstrates how the portable CAN layer can be connected to the
+ * STM32 HAL bxCAN API. The previous revision of this file contained minimal
+ * stubs so the example could compile without the HAL.  The implementation
+ * below expects the real HAL headers to be available and calls into the HAL
+ * directly.
  */
-
-/* ----- Minimal HAL subset ------------------------------------------------ */
-
-typedef struct {
-    uint32_t StdId;
-    uint32_t ExtId;
-    uint32_t IDE;
-    uint32_t RTR;
-    uint32_t DLC;
-} CAN_TxHeaderTypeDef;
-
-typedef struct {
-    uint32_t StdId;
-    uint32_t ExtId;
-    uint32_t IDE;
-    uint32_t RTR;
-    uint32_t DLC;
-} CAN_RxHeaderTypeDef;
-
-typedef struct {
-    uint32_t FilterIdHigh;
-    uint32_t FilterMaskIdHigh;
-} CAN_FilterTypeDef;
-
-typedef struct {
-    struct {
-        uint32_t Prescaler;
-        uint32_t Mode;
-        uint32_t SJW;
-        uint32_t BS1;
-        uint32_t BS2;
-    } Init;
-} CAN_HandleTypeDef;
-
-typedef enum { HAL_OK = 0, HAL_ERROR } HAL_StatusTypeDef;
-
-static HAL_StatusTypeDef HAL_CAN_Init(CAN_HandleTypeDef *h) { (void)h; return HAL_OK; }
-static HAL_StatusTypeDef HAL_CAN_Start(CAN_HandleTypeDef *h) { (void)h; return HAL_OK; }
-static HAL_StatusTypeDef HAL_CAN_Stop(CAN_HandleTypeDef *h) { (void)h; return HAL_OK; }
-static HAL_StatusTypeDef HAL_CAN_ConfigFilter(CAN_HandleTypeDef *h, const CAN_FilterTypeDef *f)
-{ (void)h; (void)f; return HAL_OK; }
-static HAL_StatusTypeDef HAL_CAN_AddTxMessage(CAN_HandleTypeDef *h, const CAN_TxHeaderTypeDef *hdr,
-                                             uint8_t *data, uint32_t *mailbox)
-{ (void)h; (void)hdr; (void)data; if (mailbox) *mailbox = 0; return HAL_OK; }
-static HAL_StatusTypeDef HAL_CAN_GetRxMessage(CAN_HandleTypeDef *h, uint32_t fifo, CAN_RxHeaderTypeDef *hdr,
-                                              uint8_t *data)
-{ (void)h; (void)fifo; (void)hdr; (void)data; return HAL_ERROR; }
-static uint32_t HAL_CAN_GetError(CAN_HandleTypeDef *h) { (void)h; return 0; }
 
 /* ----- Driver implementation -------------------------------------------- */
 
 typedef struct {
     CAN_DriverContext_t base;
     CAN_HandleTypeDef hcan;
-    int dummy; /* used to simulate bitrate register for autobaud */
 } BxCAN_Context;
 
 static BxCAN_Context bx_ctx;
@@ -75,8 +28,10 @@ static void         bx_config_bitrate(BxCAN_Context *ctx, uint32_t bitrate);
 static CAN_Result_t bx_init(ICANDriver *drv, const CAN_Config_t *cfg)
 {
     BxCAN_Context *ctx = &bx_ctx;
+    ctx->hcan.Instance = CAN1;
     bx_config_bitrate(ctx, cfg ? cfg->bitrate : 500000);
-    (void)HAL_CAN_Start(&ctx->hcan);
+    if (HAL_CAN_Start(&ctx->hcan) != HAL_OK)
+        return CAN_ERROR;
     drv->ctx = ctx;
     if (cfg) {
         bx_set_filter(drv, cfg->filter_id, cfg->filter_mask);
@@ -124,7 +79,17 @@ static CAN_Result_t bx_receive(ICANDriver *drv, CAN_Message_t *msg)
 static CAN_Result_t bx_set_filter(ICANDriver *drv, uint32_t id, uint32_t mask)
 {
     BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
-    CAN_FilterTypeDef f = { .FilterIdHigh = id, .FilterMaskIdHigh = mask };
+    CAN_FilterTypeDef f;
+    f.FilterBank = 0;
+    f.FilterMode = CAN_FILTERMODE_IDMASK;
+    f.FilterScale = CAN_FILTERSCALE_32BIT;
+    f.FilterIdHigh = id << 5;
+    f.FilterIdLow = 0;
+    f.FilterMaskIdHigh = mask << 5;
+    f.FilterMaskIdLow = 0;
+    f.FilterFIFOAssignment = CAN_FILTER_FIFO0;
+    f.FilterActivation = ENABLE;
+    f.SlaveStartFilterBank = 0;
     HAL_CAN_ConfigFilter(&ctx->hcan, &f);
     return CAN_OK;
 }
@@ -132,7 +97,23 @@ static CAN_Result_t bx_set_filter(ICANDriver *drv, uint32_t id, uint32_t mask)
 static CAN_Result_t bx_set_mode(ICANDriver *drv, CAN_Mode_t mode)
 {
     BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
-    ctx->hcan.Init.Mode = mode;
+    uint32_t hal_mode = CAN_MODE_NORMAL;
+    switch (mode) {
+    case CAN_MODE_LOOPBACK:
+        hal_mode = CAN_MODE_LOOPBACK;
+        break;
+    case CAN_MODE_SILENT:
+    case CAN_MODE_AUTOBAUD:
+        hal_mode = CAN_MODE_SILENT;
+        break;
+    case CAN_MODE_NORMAL:
+    default:
+        hal_mode = CAN_MODE_NORMAL;
+        break;
+    }
+    HAL_CAN_Stop(&ctx->hcan);
+    ctx->hcan.Init.Mode = hal_mode;
+    HAL_CAN_Init(&ctx->hcan);
     return HAL_CAN_Start(&ctx->hcan) == HAL_OK ? CAN_OK : CAN_ERROR;
 }
 
@@ -142,10 +123,15 @@ static void bx_config_bitrate(BxCAN_Context *ctx, uint32_t bitrate)
     const uint32_t tq   = 16U;       /* number of time quanta */
 
     ctx->hcan.Init.Prescaler = pclk / (bitrate * tq);
-    ctx->hcan.Init.SJW       = 1;
-    ctx->hcan.Init.BS1       = 13;
-    ctx->hcan.Init.BS2       = 2;
-    ctx->dummy               = (int)bitrate;
+    ctx->hcan.Init.SyncJumpWidth = CAN_SJW_1TQ;
+    ctx->hcan.Init.TimeSeg1      = CAN_BS1_13TQ;
+    ctx->hcan.Init.TimeSeg2      = CAN_BS2_2TQ;
+    ctx->hcan.Init.TimeTriggeredMode   = DISABLE;
+    ctx->hcan.Init.AutoBusOff          = DISABLE;
+    ctx->hcan.Init.AutoWakeUp          = DISABLE;
+    ctx->hcan.Init.AutoRetransmission  = DISABLE;
+    ctx->hcan.Init.ReceiveFifoLocked   = DISABLE;
+    ctx->hcan.Init.TransmitFifoPriority = DISABLE;
     HAL_CAN_Init(&ctx->hcan);
 }
 
