@@ -20,7 +20,8 @@ typedef struct {
 static CAN_Instance_t can_instances[MAX_CAN_INTERFACES];
 static uint8_t can_instances_count = 0;
 
-static void CAN_Manager_TriggerEvent(uint8_t inst_id, CAN_Event_t event, void *arg);
+/* Exported so drivers can notify about asynchronous events */
+void CAN_Manager_TriggerEvent(uint8_t inst_id, CAN_Event_t event, void *arg);
 
 void CAN_Manager_Init(void)
 {
@@ -41,6 +42,8 @@ int CAN_Manager_AddInterface(ICANDriver *driver, const CAN_Config_t *config)
     CAN_Buffer_t *buf = &can_instances[can_instances_count].buffers;
     buf->tx_head = buf->tx_tail = 0;
     buf->rx_head = buf->rx_tail = 0;
+    /* allow driver to know its instance id for external event reporting */
+    driver->ctx = (void*)(uintptr_t)can_instances_count;
     return can_instances_count++;
 }
 
@@ -101,7 +104,6 @@ void CAN_Manager_Process(void)
             CAN_Message_t *msg = &buf->tx_queue[buf->tx_tail];
             if (drv->send(drv, msg, 0) == CAN_OK) {
                 buf->tx_tail = (buf->tx_tail + 1) % CAN_TX_QUEUE_LEN;
-                CAN_Manager_TriggerEvent(i, CAN_EVENT_TX_COMPLETE, msg);
             }
         }
 
@@ -113,13 +115,13 @@ void CAN_Manager_Process(void)
                     break; /* drop if full */
                 buf->rx_queue[buf->rx_head] = rx;
                 buf->rx_head = next;
-                CAN_Manager_TriggerEvent(i, CAN_EVENT_RX, &rx);
             }
         }
     }
 }
 
-/* Example event trigger functions - would be called by driver implementations */
+/* Called by drivers or internal processing to dispatch events to registered
+ * callbacks. */
 void CAN_Manager_TriggerEvent(uint8_t inst_id, CAN_Event_t event, void *arg)
 {
     if (inst_id >= can_instances_count)

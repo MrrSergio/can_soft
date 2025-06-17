@@ -22,6 +22,7 @@ int CAN_GetMessage(uint8_t inst_id, CAN_Message_t *msg);
 void CAN_RegisterCallback(uint8_t inst_id, CAN_Event_t event, CAN_Callback_t cb);
 CAN_Result_t CAN_StartAutoBaud(uint8_t inst_id, const uint32_t *rates, uint8_t num);
 void CAN_Manager_Process(void);
+void CAN_Manager_TriggerEvent(uint8_t inst_id, CAN_Event_t event, void *arg);
 
 #ifdef __cplusplus
 }
