@@ -35,6 +35,10 @@ typedef struct {
     uint8_t extended;
 } CAN_Message_t;
 
+typedef struct {
+    uint8_t inst_id;
+} CAN_DriverContext_t;
+
 struct ICANDriver {
     CAN_Result_t (*init)(ICANDriver *driver, const CAN_Config_t *config);
     CAN_Result_t (*send)(ICANDriver *driver, const CAN_Message_t *msg, uint32_t timeout_ms);

@@ -55,20 +55,26 @@ static uint32_t HAL_CAN_GetError(CAN_HandleTypeDef *h) { (void)h; return 0; }
 
 /* ----- Driver implementation -------------------------------------------- */
 
-static CAN_HandleTypeDef hcan1;
+typedef struct {
+    CAN_DriverContext_t base;
+    CAN_HandleTypeDef hcan;
+} BxCAN_Context;
+
+static BxCAN_Context bx_ctx;
 /* Forward declarations for helpers used in init */
 static CAN_Result_t bx_set_filter(ICANDriver *drv, uint32_t id, uint32_t mask);
 static CAN_Result_t bx_set_mode(ICANDriver *drv, CAN_Mode_t mode);
 
 static CAN_Result_t bx_init(ICANDriver *drv, const CAN_Config_t *cfg)
 {
-    (void)HAL_CAN_Init(&hcan1);
-    (void)HAL_CAN_Start(&hcan1);
+    BxCAN_Context *ctx = &bx_ctx;
+    (void)HAL_CAN_Init(&ctx->hcan);
+    (void)HAL_CAN_Start(&ctx->hcan);
+    drv->ctx = ctx;
     if (cfg) {
         bx_set_filter(drv, cfg->filter_id, cfg->filter_mask);
         bx_set_mode(drv, cfg->mode);
     }
-    drv->ctx = &hcan1;
     return CAN_OK;
 }
 
@@ -84,8 +90,9 @@ static CAN_Result_t bx_send(ICANDriver *drv, const CAN_Message_t *msg, uint32_t 
         .RTR   = 0,
         .DLC   = msg->dlc
     };
-    HAL_CAN_AddTxMessage(&hcan1, &hdr, (uint8_t *)msg->data, NULL);
-    CAN_Manager_TriggerEvent((uint8_t)(uintptr_t)drv->ctx,
+    BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
+    HAL_CAN_AddTxMessage(&ctx->hcan, &hdr, (uint8_t *)msg->data, NULL);
+    CAN_Manager_TriggerEvent(ctx->base.inst_id,
                              CAN_EVENT_TX_COMPLETE, (void *)msg);
     return CAN_OK;
 }
@@ -93,13 +100,14 @@ static CAN_Result_t bx_send(ICANDriver *drv, const CAN_Message_t *msg, uint32_t 
 static CAN_Result_t bx_receive(ICANDriver *drv, CAN_Message_t *msg)
 {
     CAN_RxHeaderTypeDef hdr;
+    BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
     if (!msg)
         return CAN_ERROR;
-    if (HAL_CAN_GetRxMessage(&hcan1, 0, &hdr, msg->data) == HAL_OK) {
+    if (HAL_CAN_GetRxMessage(&ctx->hcan, 0, &hdr, msg->data) == HAL_OK) {
         msg->id       = hdr.IDE ? hdr.ExtId : hdr.StdId;
         msg->extended = hdr.IDE ? 1 : 0;
         msg->dlc      = hdr.DLC;
-        CAN_Manager_TriggerEvent((uint8_t)(uintptr_t)drv->ctx,
+        CAN_Manager_TriggerEvent(ctx->base.inst_id,
                                  CAN_EVENT_RX, msg);
         return CAN_OK;
     }
@@ -108,23 +116,23 @@ static CAN_Result_t bx_receive(ICANDriver *drv, CAN_Message_t *msg)
 
 static CAN_Result_t bx_set_filter(ICANDriver *drv, uint32_t id, uint32_t mask)
 {
-    (void)drv;
+    BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
     CAN_FilterTypeDef f = { .FilterIdHigh = id, .FilterMaskIdHigh = mask };
-    HAL_CAN_ConfigFilter(&hcan1, &f);
+    HAL_CAN_ConfigFilter(&ctx->hcan, &f);
     return CAN_OK;
 }
 
 static CAN_Result_t bx_set_mode(ICANDriver *drv, CAN_Mode_t mode)
 {
-    (void)drv;
-    hcan1.Init.Mode = mode;
-    return HAL_CAN_Start(&hcan1) == HAL_OK ? CAN_OK : CAN_ERROR;
+    BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
+    ctx->hcan.Init.Mode = mode;
+    return HAL_CAN_Start(&ctx->hcan) == HAL_OK ? CAN_OK : CAN_ERROR;
 }
 
 static uint32_t bx_get_error(ICANDriver *drv)
 {
-    (void)drv;
-    return HAL_CAN_GetError(&hcan1);
+    BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
+    return HAL_CAN_GetError(&ctx->hcan);
 }
 
 static CAN_Result_t bx_autobaud(ICANDriver *drv, const uint32_t *rates, uint8_t num)
