@@ -16,10 +16,9 @@
 
 typedef struct {
     CAN_DriverContext_t base;
-    CAN_HandleTypeDef hcan;
+    CAN_HandleTypeDef   hcan;
 } BxCAN_Context;
 
-static BxCAN_Context bx_ctx;
 /* Forward declarations for helpers used in init */
 static CAN_Result_t bx_set_filter(ICANDriver *drv, uint32_t id, uint32_t mask);
 static CAN_Result_t bx_set_mode(ICANDriver *drv, CAN_Mode_t mode);
@@ -27,12 +26,14 @@ static void         bx_config_bitrate(BxCAN_Context *ctx, uint32_t bitrate);
 
 static CAN_Result_t bx_init(ICANDriver *drv, const CAN_Config_t *cfg)
 {
-    BxCAN_Context *ctx = &bx_ctx;
-    ctx->hcan.Instance = CAN1;
+    BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
+    if (!ctx)
+        return CAN_ERROR;
+
     bx_config_bitrate(ctx, cfg ? cfg->bitrate : 500000);
     if (HAL_CAN_Start(&ctx->hcan) != HAL_OK)
         return CAN_ERROR;
-    drv->ctx = ctx;
+
     if (cfg) {
         bx_set_filter(drv, cfg->filter_id, cfg->filter_mask);
         bx_set_mode(drv, cfg->mode);
@@ -175,13 +176,23 @@ static CAN_Result_t bx_autobaud(ICANDriver *drv, const uint32_t *rates, uint8_t 
     return CAN_ERROR;
 }
 
-ICANDriver stm32_can1_driver = {
-    .init = bx_init,
-    .send = bx_send,
-    .receive = bx_receive,
-    .set_filter = bx_set_filter,
-    .set_mode = bx_set_mode,
+static ICANDriver bx_template = {
+    .init            = bx_init,
+    .send            = bx_send,
+    .receive         = bx_receive,
+    .set_filter      = bx_set_filter,
+    .set_mode        = bx_set_mode,
     .get_error_state = bx_get_error,
     .auto_baud_detect = bx_autobaud,
-    .ctx = NULL
+    .ctx             = NULL
 };
+
+void BxCAN_SetupDriver(ICANDriver *drv, BxCAN_Context *ctx, CAN_TypeDef *inst)
+{
+    if (!drv || !ctx)
+        return;
+
+    *drv = bx_template;
+    ctx->hcan.Instance = inst;
+    drv->ctx = ctx;
+}
