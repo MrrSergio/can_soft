@@ -1,12 +1,16 @@
 #include "can_stm32_fdcan.h"
 #include "can_manager.h"
 #include <stdio.h>
+#include <stddef.h>
+
+#define GET_CTX(h) ((FDCAN_Context *)((char *)(h) - offsetof(FDCAN_Context, hfdcan)))
 
 /* Simple FDCAN driver based on STM32 HAL */
 
 typedef struct {
     CAN_DriverContext_t base;
     FDCAN_HandleTypeDef hfdcan;
+    ICANDriver         *driver;
 } FDCAN_Context;
 
 static CAN_Result_t fd_set_filter(ICANDriver *drv, uint32_t id, uint32_t mask);
@@ -158,6 +162,56 @@ static CAN_Result_t fd_autobaud(ICANDriver *drv, const uint32_t *rates, uint8_t 
     return CAN_ERROR;
 }
 
+static void fd_enable_interrupts(ICANDriver *drv)
+{
+    FDCAN_Context *ctx = (FDCAN_Context *)drv->ctx;
+    HAL_FDCAN_ActivateNotification(&ctx->hfdcan,
+                                   FDCAN_IT_RX_FIFO0_NEW_MESSAGE |
+                                   FDCAN_IT_TX_FIFO_EMPTY |
+                                   FDCAN_IT_ERROR_WARNING);
+}
+
+static void fd_disable_interrupts(ICANDriver *drv)
+{
+    FDCAN_Context *ctx = (FDCAN_Context *)drv->ctx;
+    HAL_FDCAN_DeactivateNotification(&ctx->hfdcan,
+                                     FDCAN_IT_RX_FIFO0_NEW_MESSAGE |
+                                     FDCAN_IT_TX_FIFO_EMPTY |
+                                     FDCAN_IT_ERROR_WARNING);
+}
+
+static void fd_irq_handler(ICANDriver *drv)
+{
+    FDCAN_Context *ctx = (FDCAN_Context *)drv->ctx;
+    HAL_FDCAN_IRQHandler(&ctx->hfdcan);
+}
+
+void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
+{
+    (void)RxFifo0ITs;
+    FDCAN_Context *ctx = GET_CTX(hfdcan);
+    FDCAN_RxHeaderTypeDef hdr;
+    CAN_Message_t msg;
+    if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &hdr, msg.data) == HAL_OK) {
+        msg.id = hdr.Identifier;
+        msg.extended = (hdr.IdType == FDCAN_EXTENDED_ID) ? 1 : 0;
+        msg.dlc = hdr.DataLength >> 16;
+        CAN_Manager_TriggerEvent(ctx->base.inst_id, CAN_EVENT_RX, &msg);
+    }
+}
+
+void HAL_FDCAN_TxFifoEmptyCallback(FDCAN_HandleTypeDef *hfdcan)
+{
+    FDCAN_Context *ctx = GET_CTX(hfdcan);
+    CAN_Manager_TriggerEvent(ctx->base.inst_id, CAN_EVENT_TX_COMPLETE, NULL);
+}
+
+void HAL_FDCAN_ErrorCallback(FDCAN_HandleTypeDef *hfdcan)
+{
+    FDCAN_Context *ctx = GET_CTX(hfdcan);
+    CAN_Manager_TriggerEvent(ctx->base.inst_id, CAN_EVENT_ERROR, NULL);
+}
+
 static ICANDriver fd_template = {
     .init            = fd_init,
     .send            = fd_send,
@@ -166,6 +220,9 @@ static ICANDriver fd_template = {
     .set_mode        = fd_set_mode,
     .get_error_state = fd_get_error,
     .auto_baud_detect = fd_autobaud,
+    .enable_interrupts = fd_enable_interrupts,
+    .disable_interrupts = fd_disable_interrupts,
+    .irq_handler     = fd_irq_handler,
     .ctx             = NULL
 };
 
@@ -176,6 +233,7 @@ void FDCAN_SetupDriver(ICANDriver *drv, FDCAN_Context *ctx, FDCAN_GlobalTypeDef 
 
     *drv = fd_template;
     ctx->hfdcan.Instance = inst;
+    ctx->driver = drv;
     drv->ctx = ctx;
 }
 

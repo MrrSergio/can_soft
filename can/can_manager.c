@@ -16,6 +16,7 @@ typedef struct {
     CAN_Buffer_t buffers;
     uint32_t filter_id;
     uint32_t filter_mask;
+    uint8_t use_interrupts;
 } CAN_Instance_t;
 
 static CAN_Instance_t can_instances[MAX_CAN_INTERFACES];
@@ -43,9 +44,11 @@ int CAN_Manager_AddInterface(ICANDriver *driver, const CAN_Config_t *config)
     if (config) {
         can_instances[can_instances_count].filter_id = config->filter_id;
         can_instances[can_instances_count].filter_mask = config->filter_mask;
+        can_instances[can_instances_count].use_interrupts = config->use_interrupts;
     } else {
         can_instances[can_instances_count].filter_id = 0;
         can_instances[can_instances_count].filter_mask = 0;
+        can_instances[can_instances_count].use_interrupts = 0;
     }
     memset(can_instances[can_instances_count].callbacks, 0, sizeof(CAN_Callback_t) * 3);
     CAN_Buffer_t *buf = &can_instances[can_instances_count].buffers;
@@ -56,6 +59,8 @@ int CAN_Manager_AddInterface(ICANDriver *driver, const CAN_Config_t *config)
         CAN_DriverContext_t *ctx = (CAN_DriverContext_t *)driver->ctx;
         ctx->inst_id = can_instances_count;
     }
+    if (can_instances[can_instances_count].use_interrupts && driver->enable_interrupts)
+        driver->enable_interrupts(driver);
     return can_instances_count++;
 }
 
@@ -131,7 +136,7 @@ void CAN_Manager_Process(void)
             }
         }
 
-        if (drv->receive) {
+        if (drv->receive && !inst->use_interrupts) {
             CAN_Message_t rx;
             while (drv->receive(drv, &rx) == CAN_OK) {
                 uint16_t next = (buf->rx_head + 1) % CAN_RX_QUEUE_LEN;

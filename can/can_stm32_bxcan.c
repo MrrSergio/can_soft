@@ -1,6 +1,9 @@
 #include "can_stm32_bxcan.h"
 #include "can_manager.h"
 #include <stdio.h>
+#include <stddef.h>
+
+#define GET_CTX(h) ((BxCAN_Context *)((char *)(h) - offsetof(BxCAN_Context, hcan)))
 
 /*
  * This driver demonstrates how the portable CAN layer can be connected to the
@@ -15,6 +18,7 @@
 typedef struct {
     CAN_DriverContext_t base;
     CAN_HandleTypeDef   hcan;
+    ICANDriver         *driver;
 } BxCAN_Context;
 
 /* Forward declarations for helpers used in init */
@@ -174,6 +178,55 @@ static CAN_Result_t bx_autobaud(ICANDriver *drv, const uint32_t *rates, uint8_t 
     return CAN_ERROR;
 }
 
+static void bx_enable_interrupts(ICANDriver *drv)
+{
+    BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
+    HAL_CAN_ActivateNotification(&ctx->hcan,
+                                 CAN_IT_RX_FIFO0_MSG_PENDING |
+                                 CAN_IT_TX_MAILBOX_EMPTY |
+                                 CAN_IT_ERROR);
+}
+
+static void bx_disable_interrupts(ICANDriver *drv)
+{
+    BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
+    HAL_CAN_DeactivateNotification(&ctx->hcan,
+                                   CAN_IT_RX_FIFO0_MSG_PENDING |
+                                   CAN_IT_TX_MAILBOX_EMPTY |
+                                   CAN_IT_ERROR);
+}
+
+static void bx_irq_handler(ICANDriver *drv)
+{
+    BxCAN_Context *ctx = (BxCAN_Context *)drv->ctx;
+    HAL_CAN_IRQHandler(&ctx->hcan);
+}
+
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
+{
+    BxCAN_Context *ctx = GET_CTX(hcan);
+    CAN_RxHeaderTypeDef hdr;
+    CAN_Message_t msg;
+    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &hdr, msg.data) == HAL_OK) {
+        msg.id = hdr.IDE ? hdr.ExtId : hdr.StdId;
+        msg.extended = hdr.IDE ? 1 : 0;
+        msg.dlc = hdr.DLC;
+        CAN_Manager_TriggerEvent(ctx->base.inst_id, CAN_EVENT_RX, &msg);
+    }
+}
+
+void HAL_CAN_TxMailbox0CompleteCallback(CAN_HandleTypeDef *hcan)
+{
+    BxCAN_Context *ctx = GET_CTX(hcan);
+    CAN_Manager_TriggerEvent(ctx->base.inst_id, CAN_EVENT_TX_COMPLETE, NULL);
+}
+
+void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan)
+{
+    BxCAN_Context *ctx = GET_CTX(hcan);
+    CAN_Manager_TriggerEvent(ctx->base.inst_id, CAN_EVENT_ERROR, NULL);
+}
+
 static ICANDriver bx_template = {
     .init            = bx_init,
     .send            = bx_send,
@@ -182,6 +235,9 @@ static ICANDriver bx_template = {
     .set_mode        = bx_set_mode,
     .get_error_state = bx_get_error,
     .auto_baud_detect = bx_autobaud,
+    .enable_interrupts = bx_enable_interrupts,
+    .disable_interrupts = bx_disable_interrupts,
+    .irq_handler     = bx_irq_handler,
     .ctx             = NULL
 };
 
@@ -192,5 +248,6 @@ void BxCAN_SetupDriver(ICANDriver *drv, BxCAN_Context *ctx, CAN_TypeDef *inst)
 
     *drv = bx_template;
     ctx->hcan.Instance = inst;
+    ctx->driver = drv;
     drv->ctx = ctx;
 }
