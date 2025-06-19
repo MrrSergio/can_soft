@@ -34,3 +34,13 @@ cc can/*.c -o can_test
 ```
 
 To build the STM32 versions of the drivers make sure the appropriate HAL sources for your family (F1/F2/F4 for bxCAN or H7 for FDCAN) are in your include path and link the HAL libraries when compiling your firmware.
+
+## Configuration
+
+The number of CAN interfaces managed by `can_manager.c` is controlled by the
+`MAX_CAN_INTERFACES` macro defined in `can/can_config.h`.  It defaults to `4`,
+but can be overridden at compile time using the `-D` flag, e.g.:
+
+```sh
+cc -DMAX_CAN_INTERFACES=8 ...
+```

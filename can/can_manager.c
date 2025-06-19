@@ -2,8 +2,6 @@
 #include "can_config.h"
 #include <string.h>
 
-#define MAX_CAN_INTERFACES 4
-
 typedef struct {
     CAN_Message_t tx_queue[CAN_TX_QUEUE_LEN];
     uint16_t tx_head, tx_tail;
