@@ -3,7 +3,19 @@
 
 
 #include "can_interface.h"
-#include "stm32f1xx_hal.h"
+
+#if defined(STM32F1xx)
+#  include "stm32f1xx_hal.h"
+#  include "stm32f1xx_hal_can.h"
+#elif defined(STM32F2xx)
+#  include "stm32f2xx_hal.h"
+#  include "stm32f2xx_hal_can.h"
+#elif defined(STM32F4xx)
+#  include "stm32f4xx_hal.h"
+#  include "stm32f4xx_hal_can.h"
+#else
+#  error "Unsupported STM32 family for bxCAN"
+#endif
 
 typedef struct {
     CAN_DriverContext_t base;
