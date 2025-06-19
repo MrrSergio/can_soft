@@ -19,6 +19,7 @@ typedef struct {
     uint32_t filter_id;
     uint32_t filter_mask;
     CAN_Mode_t mode;
+    uint8_t use_interrupts;
 } CAN_Config_t;
 
 typedef enum {
@@ -47,6 +48,9 @@ struct ICANDriver {
     CAN_Result_t (*set_mode)(ICANDriver *driver, CAN_Mode_t mode);
     uint32_t     (*get_error_state)(ICANDriver *driver);
     CAN_Result_t (*auto_baud_detect)(ICANDriver *driver, const uint32_t *bitrates, uint8_t num);
+    void         (*enable_interrupts)(ICANDriver *driver);
+    void         (*disable_interrupts)(ICANDriver *driver);
+    void         (*irq_handler)(ICANDriver *driver);
     void *ctx; /* driver specific context */
 };
 

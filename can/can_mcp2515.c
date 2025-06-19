@@ -101,5 +101,8 @@ ICANDriver mcp2515_driver = {
     .set_mode = mcp_set_mode,
     .get_error_state = mcp_get_error,
     .auto_baud_detect = mcp_autobaud,
+    .enable_interrupts = NULL,
+    .disable_interrupts = NULL,
+    .irq_handler = NULL,
     .ctx = NULL
 };

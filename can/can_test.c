@@ -30,13 +30,15 @@ int main(void)
         .mode = CAN_MODE_AUTOBAUD,
         .bitrate = 0,
         .filter_id = 0x100,
-        .filter_mask = 0x700
+        .filter_mask = 0x700,
+        .use_interrupts = 0
     };
     CAN_Config_t cfg1 = {
         .mode = CAN_MODE_NORMAL,
         .bitrate = 500000,
         .filter_id = 0,
-        .filter_mask = 0
+        .filter_mask = 0,
+        .use_interrupts = 1
     };
 
     CAN_Manager_Init();
@@ -78,6 +80,11 @@ int main(void)
     CAN_SendMessage(id1, &msg);
     CAN_SendMessage(id2, &msg);
     CAN_SendMessage(id3, &msg);
+
+    /* Simulate IRQ handlers being called */
+    if (bx_drv1.irq_handler) bx_drv1.irq_handler(&bx_drv1);
+    if (bx_drv2.irq_handler) bx_drv2.irq_handler(&bx_drv2);
+    if (fd_drv.irq_handler) fd_drv.irq_handler(&fd_drv);
 
     for (int i = 0; i < 3; ++i) {
         CAN_Manager_Process();

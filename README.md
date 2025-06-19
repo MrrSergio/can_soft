@@ -23,10 +23,11 @@ can/
 - Automatic bitrate detection helper
 - Simple API for sending messages and polling receive buffers
 - Direct access to driver functions for filters, modes and error queries
+- Optional interrupt driven operation when supported by the driver
 
 ## Building example
 
-`can_test.c` demonstrates adding four interfaces (MCP2515, two bxCAN instances for CAN1/CAN2 and one FDCAN interface). The example enables autobaud on the MCP2515 and FDCAN drivers, configures filters and loopback mode, sends messages and polls for reception.
+`can_test.c` demonstrates adding four interfaces (MCP2515, two bxCAN instances for CAN1/CAN2 and one FDCAN interface). The example enables autobaud on the MCP2515 and FDCAN drivers, configures filters and loopback mode, sends messages and uses either polling or interrupts for reception.
 
 ```
 cc can/*.c -o can_test

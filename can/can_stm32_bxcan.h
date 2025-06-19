@@ -20,6 +20,7 @@
 typedef struct {
     CAN_DriverContext_t base;
     CAN_HandleTypeDef   hcan;
+    ICANDriver         *driver;
 } BxCAN_Context;
 
 void BxCAN_SetupDriver(ICANDriver *driver, BxCAN_Context *ctx, CAN_TypeDef *inst);

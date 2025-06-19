@@ -13,6 +13,7 @@
 typedef struct {
     CAN_DriverContext_t base;
     FDCAN_HandleTypeDef hfdcan;
+    ICANDriver         *driver;
 } FDCAN_Context;
 
 void FDCAN_SetupDriver(ICANDriver *driver, FDCAN_Context *ctx, FDCAN_GlobalTypeDef *inst);
