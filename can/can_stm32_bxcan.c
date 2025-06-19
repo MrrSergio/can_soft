@@ -1,8 +1,6 @@
 #include "can_stm32_bxcan.h"
 #include "can_manager.h"
 #include <stdio.h>
-#include "stm32f1xx_hal.h"
-#include "stm32f1xx_hal_can.h"
 
 /*
  * This driver demonstrates how the portable CAN layer can be connected to the
